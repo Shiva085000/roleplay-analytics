@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roleplay Analytics</title>
+<meta name="description" content="IIFL Sarvam roleplay sessions: completion, why sessions fail, comparisons, and the per-session Excel for any time window.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Roleplay Analytics · IIFL Sarvam</h1>
+    <div class="status">
+      <span class="pill" id="backendPill"><span class="dot"></span><span id="backendText">Backend: checking…</span></span>
+      <span class="pill" id="coveragePill"><span class="dot"></span><span id="coverageText">Logs: —</span></span>
+      <span class="pill" id="livePill"><span class="dot"></span><span id="liveText">Live Azure: —</span></span>
+      <button class="btn" id="ingestBtn" type="button" title="Copy new log exports from Downloads and load them">Load new exports</button>
+      <button class="btn" id="settingsBtn" type="button" aria-haspopup="dialog">Settings</button>
+    </div>
+  </header>
+
+  <section class="controls" aria-label="Choose a time window">
+    <div class="row">
+      <span class="label">Window</span>
+      <div class="seg" id="presets" role="group" aria-label="Time window">
+        <button type="button" data-p="h1">Last hour</button>
+        <button type="button" data-p="h5">Last 5 hours</button>
+        <button type="button" data-p="h24">Last 24 hours</button>
+        <button type="button" data-p="today">Today</button>
+        <button type="button" data-p="yesterday">Yesterday</button>
+        <button type="button" data-p="week">This week</button>
+        <button type="button" data-p="d7">Last 7 days</button>
+        <button type="button" data-p="month">This month</button>
+        <button type="button" data-p="custom">Custom</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="label">From / to (IST)</span>
+      <input type="datetime-local" id="from" aria-label="From (IST)" step="60">
+      <input type="datetime-local" id="to" aria-label="To (IST)" step="60">
+      <span class="label">Group by</span>
+      <div class="seg" id="units" role="group" aria-label="Group by">
+        <button type="button" data-u="auto">Auto</button>
+        <button type="button" data-u="hour">Hour</button>
+        <button type="button" data-u="day">Day</button>
+        <button type="button" data-u="week">Week</button>
+        <button type="button" data-u="month">Month</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="label">Compare with</span>
+      <div class="seg" id="compares" role="group" aria-label="Compare with">
+        <button type="button" data-c="prev">Previous period</button>
+        <button type="button" data-c="lastweek">Same time last week</button>
+        <button type="button" data-c="custom">Custom</button>
+        <button type="button" data-c="none">None</button>
+      </div>
+      <span id="compareInputs" hidden>
+        <input type="datetime-local" id="cfrom" aria-label="Compare from (IST)" step="60">
+        <input type="datetime-local" id="cto" aria-label="Compare to (IST)" step="60">
+      </span>
+      <div class="actions">
+        <button class="btn primary" id="runBtn" type="button">Analyse</button>
+        <button class="btn" id="excelBtn" type="button">Download Excel</button>
+      </div>
+    </div>
+    <div class="windowline" id="windowLine">Pick a window and press Analyse.</div>
+  </section>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <section class="kpis" id="kpis" aria-label="Headline numbers">
+    <div class="kpi"><span class="k">Sessions</span><span class="v" id="k-sessions">—</span><span class="d" id="d-sessions"></span></div>
+    <div class="kpi"><span class="k">Completion rate</span><span class="v" id="k-success">—</span><span class="d" id="d-success"></span></div>
+    <div class="kpi"><span class="k">Never heard once</span><span class="v" id="k-never">—</span><span class="d" id="d-never"></span></div>
+    <div class="kpi"><span class="k">Heard, then stopped</span><span class="v" id="k-stopped">—</span><span class="d" id="d-stopped"></span></div>
+    <div class="kpi"><span class="k">Ran but not scored</span><span class="v" id="k-notsaved">—</span><span class="d" id="d-notsaved"></span></div>
+    <div class="kpi"><span class="k">Never connected</span><span class="v" id="k-conn">—</span><span class="d" id="d-conn"></span></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Completion rate</h2>
+      <p class="sub" id="trendSub">Share of sessions completed (more than 3 exchanges saved and scored), per period.</p>
+      <div class="chartbox"><canvas id="trendChart" aria-label="Completion rate over time" role="img"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Sessions</h2>
+      <p class="sub">Sessions started per period (IST).</p>
+      <div class="chartbox"><canvas id="volumeChart" aria-label="Sessions over time" role="img"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Where sessions are lost</h2>
+      <p class="sub">Share of all sessions reaching each step.</p>
+      <div class="chartbox"><canvas id="funnelChart" aria-label="Session funnel" role="img"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Why sessions fail</h2>
+      <p class="sub">Failure categories, % of all sessions. One category per failed session.</p>
+      <div class="chartbox tall"><canvas id="catChart" aria-label="Failure categories" role="img"></canvas></div>
+    </div>
+    <div class="card wide">
+      <h2>Failure categories in detail</h2>
+      <p class="sub">What each category is read from in the logs or the mic recording.</p>
+      <div class="tablewrap scroll"><table id="catTable"></table></div>
+    </div>
+    <div class="card">
+      <h2>Mic warnings</h2>
+      <p class="sub">First warning the app was sent in each session (the app shows only one). "Heard after" = a learner turn was committed after it.</p>
+      <div class="tablewrap"><table id="warnTable"></table></div>
+    </div>
+    <div class="card">
+      <h2>Language</h2>
+      <p class="sub">Share of sessions and completion rate per session language.</p>
+      <div class="tablewrap"><table id="langTable"></table></div>
+    </div>
+    <div class="card wide">
+      <h2>Device / browser</h2>
+      <p class="sub">From the app's client_info message (user agent). "Not reported" = the mic never started, so the app never sent it.</p>
+      <div class="tablewrap"><table id="devTable"></table></div>
+    </div>
+  </section>
+
+  <p class="foot">Data: prod backend logs of app-yodagptbackend-prod-01 and the learners' mic recordings, read by the local backend on this PC. Times are IST. The Excel has the same 70 columns as "IIFL Sarvam Roleplay Sessions 21-28 Sep"; learner, cohort, scenario, score and transcript columns fill in once the CRUD export is added to the backend.</p>
+</div>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2 style="margin:0;font-size:16px">Settings</h2>
+    <label>Backend address
+      <input type="text" id="apiBase" placeholder="http://localhost:8765" spellcheck="false">
+    </label>
+    <label>Access key (only if the backend asks for one)
+      <input type="password" id="apiKey" autocomplete="off">
+    </label>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" value="cancel" type="submit">Cancel</button>
+      <button class="btn primary" id="saveSettings" value="save" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
