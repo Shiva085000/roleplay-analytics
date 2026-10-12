@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Roleplay Analytics</title>
 <meta name="description" content="IIFL Sarvam roleplay sessions: completion, why sessions fail, comparisons, and the per-session Excel for any time window.">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <div class="wrap">
@@ -13,17 +13,28 @@
     <h1>Roleplay Analytics · IIFL Sarvam</h1>
     <div class="status">
       <span class="pill" id="backendPill"><span class="dot"></span><span id="backendText">Backend: checking…</span></span>
-      <span class="pill" id="coveragePill"><span class="dot"></span><span id="coverageText">Logs: —</span></span>
-      <span class="pill" id="livePill"><span class="dot"></span><span id="liveText">Live Azure: —</span></span>
-      <button class="btn" id="ingestBtn" type="button" title="Copy new log exports from Downloads and load them">Load new exports</button>
+      <span class="pill" id="coveragePill"><span class="dot"></span><span id="coverageText">Logs uploaded: —</span></span>
       <button class="btn" id="settingsBtn" type="button" aria-haspopup="dialog">Settings</button>
     </div>
   </header>
 
-  <section class="controls" aria-label="Choose a time window">
+  <section class="controls" aria-label="Upload logs and choose a time window">
     <div class="row">
-      <span class="label">Window</span>
+      <span class="step">1</span>
+      <span class="label">Upload logs</span>
+      <input type="file" id="fileInput" accept=".gz,.ndjson,.json" hidden>
+      <button class="btn primary" id="uploadBtn" type="button">Choose log export…</button>
+      <span class="hint">The .ndjson.gz export of app-yodagptbackend-prod-01's logs for the period you need.</span>
+    </div>
+    <div class="job" id="job" hidden>
+      <div class="jobline"><span id="jobStage">—</span><span id="jobDetail"></span></div>
+      <div class="bar"><div id="jobBar"></div></div>
+    </div>
+    <div class="row">
+      <span class="step">2</span>
+      <span class="label">Period</span>
       <div class="seg" id="presets" role="group" aria-label="Time window">
+        <button type="button" data-p="uploaded">All uploaded logs</button>
         <button type="button" data-p="h1">Last hour</button>
         <button type="button" data-p="h5">Last 5 hours</button>
         <button type="button" data-p="h24">Last 24 hours</button>
@@ -49,6 +60,7 @@
       </div>
     </div>
     <div class="row">
+      <span class="step">3</span>
       <span class="label">Compare with</span>
       <div class="seg" id="compares" role="group" aria-label="Compare with">
         <button type="button" data-c="prev">Previous period</button>
@@ -122,7 +134,7 @@
     </div>
   </section>
 
-  <p class="foot">Data: prod backend logs of app-yodagptbackend-prod-01 and the learners' mic recordings, read by the local backend on this PC. Times are IST. The Excel has the same 70 columns as "IIFL Sarvam Roleplay Sessions 21-28 Sep"; learner, cohort, scenario, score and transcript columns fill in once the CRUD export is added to the backend.</p>
+  <p class="foot">Data: the uploaded prod backend logs of app-yodagptbackend-prod-01 and the learners' mic recordings, processed by the backend on this PC (start_backend.bat). Times are IST. The Excel has the same 70 columns as "IIFL Sarvam Roleplay Sessions 21-28 Sep"; learner, cohort, scenario, score and transcript columns fill in once the CRUD export is added to the backend.</p>
 </div>
 
 <dialog id="settings">
@@ -142,6 +154,6 @@
 </dialog>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>

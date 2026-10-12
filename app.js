@@ -13,7 +13,7 @@
     key: store.get("rpa.key", ""),
     preset: store.get("rpa.preset", "yesterday"),
     unit: store.get("rpa.unit", "auto"),
-    compare: store.get("rpa.compare", "prev"),
+    compare: store.get("rpa.compare", "none"),
     charts: {},
     status: null,
   };
@@ -29,7 +29,17 @@
   const floorDay = (d) => { const x = new Date(d); x.setUTCHours(0, 0, 0, 0); return x; };
   const human = (d) => d.toLocaleString("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
+  function uploadedWindow() {
+    const job = state.status?.job;
+    if (job && job.state === "done" && job.from && job.to) return [parseLocal(job.from.slice(0, 16)), parseLocal(job.to.slice(0, 16))];
+    const cov = state.status?.coverage || [];
+    if (!cov.length) return null;
+    const hi = parseLocal(cov[cov.length - 1][1].slice(0, 16));
+    return [parseLocal(cov[0][0].slice(0, 16)), addMs(hi, 60e3)];
+  }
+
   function presetWindow(p) {
+    if (p === "uploaded") return uploadedWindow();
     const now = nowIst();
     const nextHour = addMs(floorHour(now), H); // include the hour in progress
     switch (p) {
@@ -90,14 +100,14 @@
       state.status = s;
       setPill("backendPill", "ok", "Backend: connected");
       const cov = s.coverage.map(([a, b]) => `${human(parseLocal(a.slice(0, 16)))} – ${human(parseLocal(b.slice(0, 16)))}`).join("; ");
-      setPill("coveragePill", s.coverage.length ? "ok" : "bad", s.coverage.length ? `Logs stored: ${cov}` : "Logs stored: none");
-      setPill("livePill", s.live_azure ? "ok" : "bad", s.live_azure ? "Live Azure: connected" : "Live Azure: no access");
+      setPill("coveragePill", s.coverage.length ? "ok" : "bad", s.coverage.length ? `Logs uploaded: ${cov}` : "Logs uploaded: none yet");
+      showJob(s.job);
+      if (s.job && (s.job.state === "running" || s.job.state === "receiving")) pollJob();
       return true;
     } catch (e) {
       state.status = null;
       setPill("backendPill", "bad", "Backend: not reachable");
-      setPill("coveragePill", null, "Logs: —");
-      setPill("livePill", null, "Live Azure: —");
+      setPill("coveragePill", null, "Logs uploaded: —");
       showNotice(`Can't reach the backend at ${state.api}. Start it on this PC with "python server.py" in roleplay-analysis (or start_backend.bat), then reload. If Chrome asks to let this site access devices on your local network, choose Allow.`);
       return false;
     }
@@ -274,9 +284,7 @@
       const gaps = [...res.window.missing, ...(res.compare_window?.missing || [])];
       if (gaps.length) {
         const g = gaps.map(([a, b]) => `${human(parseLocal(a.slice(0, 16)))} – ${human(parseLocal(b.slice(0, 16)))}`).join("; ");
-        showNotice(`No logs are stored for ${g} IST, so those hours show no sessions. ` +
-          (state.status?.live_azure ? "Live Azure fetch did not return them." :
-            "Drop the newer log export into Downloads and press “Load new exports”, or give this PC's Azure login Log Analytics Reader access for live data."));
+        showNotice(`No logs have been uploaded for ${g} IST, so those hours show no sessions. Upload the export that covers them (step 1), or pick a period inside the uploaded logs.`);
       } else if (!res.current.sessions) {
         showNotice("No roleplay sessions started in this window.");
       }
@@ -309,21 +317,80 @@
     }
   }
 
-  async function ingest() {
-    const btn = $("ingestBtn");
-    btn.disabled = true; btn.textContent = "Loading…";
-    try {
-      const r = await (await call("api/ingest", null, { method: "POST" })).json();
-      await refreshStatus();
-      const parts = [];
-      if (r.loaded.length) parts.push(`Loaded ${r.loaded.join(", ")}.`);
-      if (r.incomplete && r.incomplete.length) parts.push(`Skipped ${r.incomplete.join(", ")}: the file is incomplete (download it again).`);
-      showNotice(parts.join(" ") || "No new exports found in Downloads or data/raw.");
-    } catch (e) {
-      showNotice(`Loading exports failed: ${e.message}`);
-    } finally {
-      btn.disabled = false; btn.textContent = "Load new exports";
+  // ---- upload + processing progress ----
+  const mb = (n) => `${(n / 1048576).toFixed(n > 1048576 * 100 ? 0 : 1)} MB`;
+  function setBar(frac) { $("jobBar").style.width = `${Math.max(0, Math.min(1, frac || 0)) * 100}%`; }
+  function busy(on) {
+    ["runBtn", "excelBtn", "uploadBtn"].forEach((id) => { $(id).disabled = on; });
+  }
+  function showJob(job) {
+    const box = $("job");
+    if (!job || job.state === "idle") { box.hidden = true; return; }
+    box.hidden = false;
+    box.classList.toggle("failed", job.state === "failed");
+    if (job.state === "failed") {
+      $("jobStage").textContent = "Upload failed"; $("jobDetail").textContent = job.error || ""; setBar(1); busy(false); return;
     }
+    if (job.state === "done") {
+      $("jobStage").textContent = `Ready: ${job.file}`;
+      const span = job.from && job.to ? `${human(parseLocal(job.from.slice(0, 16)))} → ${human(parseLocal(job.to.slice(0, 16)))} IST` : "";
+      $("jobDetail").textContent = `${span} · ${fmtInt(job.sessions)} sessions${job.already_loaded ? " (already uploaded before)" : ""}`;
+      setBar(1); busy(false); return;
+    }
+    busy(true);
+    $("jobStage").textContent = `${job.stage || "Working"}…`;
+    if (job.stage === "Loading log lines") { $("jobDetail").textContent = `${fmtInt(job.lines_read || 0)} lines read`; setBar(0.15); }
+    else if (job.stage === "Measuring mic recordings") {
+      const t = job.rec_total, d = job.rec_done || 0;
+      $("jobDetail").textContent = t ? `${fmtInt(d)} / ${fmtInt(t)} recordings (first time only; cached after)` : "finding sessions…";
+      setBar(t ? 0.2 + 0.8 * d / t : 0.2);
+    } else if (job.stage === "Receiving the file") { $("jobDetail").textContent = mb(job.received || 0); }
+    else { $("jobDetail").textContent = ""; setBar(0.1); }
+  }
+  let polling = false;
+  async function pollJob() {
+    if (polling) return;
+    polling = true;
+    try {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const s = await (await call("api/status")).json();
+        state.status = s;
+        showJob(s.job);
+        if (s.job.state === "done") {
+          const cov = s.coverage.map(([a, b]) => `${human(parseLocal(a.slice(0, 16)))} – ${human(parseLocal(b.slice(0, 16)))}`).join("; ");
+          setPill("coveragePill", "ok", `Logs uploaded: ${cov}`);
+          applyPreset("uploaded");
+          await analyse();
+          break;
+        }
+        if (s.job.state !== "running" && s.job.state !== "receiving") break;
+      }
+    } catch (e) {
+      showNotice(`Lost contact with the backend while processing: ${e.message}`);
+    } finally {
+      polling = false;
+    }
+  }
+  function upload(file) {
+    if (!file) return;
+    showNotice("");
+    const box = $("job"); box.hidden = false; box.classList.remove("failed");
+    $("jobStage").textContent = `Uploading ${file.name}…`; setBar(0); busy(true);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url("api/upload", { name: file.name }));
+    if (state.key) xhr.setRequestHeader("X-Access-Key", state.key);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) { $("jobDetail").textContent = `${mb(e.loaded)} / ${mb(e.total)}`; setBar(0.1 * e.loaded / e.total); }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { pollJob(); return; }
+      let msg = xhr.statusText;
+      try { msg = JSON.parse(xhr.responseText).detail || msg; } catch { /* not JSON */ }
+      showJob({ state: "failed", error: `${xhr.status}: ${msg}` });
+    };
+    xhr.onerror = () => showJob({ state: "failed", error: `Could not reach the backend at ${state.api}.` });
+    xhr.send(file);
   }
 
   // ---- wire up ----
@@ -338,7 +405,8 @@
   ["cfrom", "cto"].forEach((id) => $(id).addEventListener("change", updateWindowLine));
   $("runBtn").addEventListener("click", analyse);
   $("excelBtn").addEventListener("click", downloadExcel);
-  $("ingestBtn").addEventListener("click", ingest);
+  $("uploadBtn").addEventListener("click", () => $("fileInput").click());
+  $("fileInput").addEventListener("change", () => { upload($("fileInput").files[0]); $("fileInput").value = ""; });
   $("settingsBtn").addEventListener("click", () => { $("apiBase").value = state.api; $("apiKey").value = state.key; $("settings").showModal(); });
   $("settings").addEventListener("close", async () => {
     if ($("settings").returnValue !== "save") return;
@@ -350,6 +418,11 @@
   press("units", "u", state.unit);
   press("compares", "c", state.compare);
   $("compareInputs").hidden = state.compare !== "custom";
-  applyPreset(state.preset === "custom" ? "yesterday" : state.preset);
-  refreshStatus().then((ok) => ok && analyse());
+  applyPreset(state.preset === "custom" || state.preset === "uploaded" ? "yesterday" : state.preset);
+  refreshStatus().then((ok) => {
+    if (!ok || polling) return;
+    // Open on the uploaded logs, which is where the data is.
+    if (uploadedWindow()) applyPreset("uploaded");
+    analyse();
+  });
 })();

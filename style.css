@@ -100,3 +100,14 @@ dialog label { display: grid; gap: 4px; font-size: 12px; color: var(--ink-2); }
 .foot { font-size: 12px; color: var(--muted); }
 .empty { color: var(--muted); font-size: 13px; padding: 24px 0; text-align: center; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.step { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--accent); color: var(--accent-ink); flex: none; }
+.hint { font-size: 12px; color: var(--muted); }
+.job { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--page); }
+.job[hidden] { display: none; }
+.jobline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 13px; }
+.jobline #jobDetail { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.bar > div { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .3s; }
+.job.failed .bar > div { background: var(--bad); }
+.job.failed #jobStage { color: var(--bad); }
