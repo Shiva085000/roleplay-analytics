@@ -315,7 +315,10 @@
     try {
       const r = await (await call("api/ingest", null, { method: "POST" })).json();
       await refreshStatus();
-      showNotice(r.loaded.length ? `Loaded ${r.loaded.join(", ")}.` : "No new exports found in Downloads or data/raw.");
+      const parts = [];
+      if (r.loaded.length) parts.push(`Loaded ${r.loaded.join(", ")}.`);
+      if (r.incomplete && r.incomplete.length) parts.push(`Skipped ${r.incomplete.join(", ")}: the file is incomplete (download it again).`);
+      showNotice(parts.join(" ") || "No new exports found in Downloads or data/raw.");
     } catch (e) {
       showNotice(`Loading exports failed: ${e.message}`);
     } finally {
